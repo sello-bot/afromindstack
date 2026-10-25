@@ -1,0 +1,24 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+*.py[cod]
+instance/
+*.db
+
+# Local databases and backups
+backups/
+**/backups/
+*.db
+*.db-*
+*.bak
+*.backup
+*.before-*
+*.pre-auth-backup
+*.pre-auth-ui-backup
+*.before-auth-foundation
+*.backup
+__pycache__/
