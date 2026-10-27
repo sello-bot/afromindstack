@@ -294,7 +294,18 @@ return <div className="shell">{recordsError&&<div className="notice" role="alert
 <div className="nav-label">MANAGE</div>{nav.slice(5).map(([name,Icon])=><button key={name} className={'nav '+(active===name?'selected':'')} onClick={()=>{setActive(name);setMobile(false);setQ('')}}><Icon size={18}/>{name}</button>)}
 <div className="side-bottom"><div className="upgrade"><div className="upgrade-icon"><Layers3 size={17}/></div><b>Make work flow.</b><p>Keep your business organised from one place.</p><button onClick={()=>setToast('Plans will be added after the pilot')}>Explore plans ↗</button></div><div className="profile"><div className="avatar">SK</div><div><b>Workspace owner</b><small>Afromind Tech</small></div></div></div></aside>
 {mobile&&<button className="scrim" onClick={()=>setMobile(false)} aria-label="Close menu"/>}
-<main><header><div className="crumb"><button className="mobile-menu icon" onClick={()=>setMobile(true)}><Menu/></button>Workspace <span>/</span> <b>{active}</b></div><div className="head-actions"><label className="search"><Search size={16}/><input placeholder="Search records..." value={q} onChange={e=>setQ(e.target.value)}/></label><button className="theme icon" title="Toggle light/dark mode" onClick={()=>setTheme(t=>t==='dark'?'light':'dark')}>{theme==='dark'?<Sun/>:<Moon/>}</button><div className="avatar">SK</div></div></header>
+<main><header><div className="crumb"><button className="mobile-menu icon" onClick={()=>setMobile(true)}><Menu/></button>Workspace <span>/</span> <b>{active}</b></div><div className="head-actions"><label className="search"><Search size={16}/><input placeholder="Search records..." value={q} onChange={e=>setQ(e.target.value)}/></label><button className="theme icon" title="Toggle light/dark mode" onClick={()=>setTheme(t=>t==='dark'?'light':'dark')}>{theme==='dark'?<Sun/>:<Moon/>}</button><div className="avatar" title={user?.name || user?.email || 'Account'}>
+  {(user?.name || user?.email || 'SK').slice(0, 2).toUpperCase()}
+</div>
+<button
+  type="button"
+  className="secondary"
+  onClick={logout}
+  title="Sign out of your account"
+>
+  Log out
+</button>
+</div></header>
 <div className="content">
 {active==='Dashboard'&&<><div className="heading"><div><label>YOUR WORKSPACE</label><h1>Good afternoon, Sello</h1><p>Here's what's happening with your business today.</p></div><button className="primary" onClick={()=>setModal('doc')}><Plus size={16}/> Create new</button></div>
 <div className="welcome"><div className="welcome-icon"><ChartNoAxesCombined/></div><div><b>Your business, at a glance.</b><p>Stay on top of cash flow, clients and the work that moves you forward.</p></div><button onClick={()=>setActive('Reports')}>View insights ↗</button></div>

@@ -14,6 +14,8 @@ from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_session import Session
 from flask_migrate import Migrate
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from werkzeug.security import generate_password_hash, check_password_hash
 from sqlalchemy.exc import IntegrityError
 
@@ -66,6 +68,14 @@ app.config.update(
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 Session(app)
+
+# Rate-limit authentication endpoints against automated abuse.
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=[],
+    storage_uri=os.getenv("RATELIMIT_STORAGE_URI", "memory://"),
+)
 
 # Only allow the configured frontend origin.
 frontend_origin = os.getenv(
@@ -188,6 +198,7 @@ def health():
 
 
 @app.post("/api/auth/register")
+@limiter.limit("5 per hour")
 def register():
     data = request.get_json(silent=True) or {}
 
@@ -257,6 +268,7 @@ def register():
 
 
 @app.post("/api/auth/login")
+@limiter.limit("10 per minute")
 def login():
     data = request.get_json(silent=True) or {}
     email = str(data.get("email", "")).strip().lower()
