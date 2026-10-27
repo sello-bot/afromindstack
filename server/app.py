@@ -18,6 +18,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from werkzeug.security import generate_password_hash, check_password_hash
 from sqlalchemy.exc import IntegrityError
+from email_validator import validate_email, EmailNotValidError
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -326,22 +327,53 @@ def list_clients():
 @app.post("/api/clients")
 @login_required
 def create_client():
-    data = request.get_json(silent=True) or {}
-    name = str(data.get("name", "")).strip()
-    company = str(data.get("company", "")).strip()
+    data = request.get_json(silent=True)
 
-    if not name or not company:
+    if not isinstance(data, dict):
+        return jsonify(error="A JSON object is required"), 400
+
+    fields = {}
+    limits = {
+        "name": 160,
+        "company": 180,
+        "email": 254,
+        "phone": 40,
+    }
+
+    for field, limit in limits.items():
+        value = data.get(field, "")
+        if not isinstance(value, str):
+            return jsonify(error=f"{field} must be text"), 400
+
+        value = value.strip()
+        if len(value) > limit:
+            return jsonify(error=f"{field} is too long"), 400
+        fields[field] = value
+
+    if not fields["name"] or not fields["company"]:
         return jsonify(error="name and company are required"), 400
 
+    if fields["email"]:
+        try:
+            validate_email(fields["email"], check_deliverability=False)
+        except EmailNotValidError:
+            return jsonify(error="Enter a valid email address"), 400
+
     c = Client(
-        name=name,
-        company=company,
-        email=str(data.get("email", "")).strip(),
-        phone=str(data.get("phone", "")).strip(),
+        name=fields["name"],
+        company=fields["company"],
+        email=fields["email"],
+        phone=fields["phone"],
         workspace_id=g.current_user.workspace_id,
     )
-    db.session.add(c)
-    db.session.commit()
+
+    try:
+        db.session.add(c)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        app.logger.exception("Failed to create client")
+        return jsonify(error="Could not save client"), 500
 
     return jsonify(
         id=c.id, name=c.name, company=c.company,
@@ -388,30 +420,72 @@ def list_documents():
 @app.post("/api/documents")
 @login_required
 def create_document():
-    data = request.get_json(silent=True) or {}
-    kind = str(data.get("kind", "")).strip()
-    client = str(data.get("client", "")).strip()
+    data = request.get_json(silent=True)
 
-    try:
-        amount = float(data.get("amount", 0))
-    except (TypeError, ValueError):
+    if not isinstance(data, dict):
+        return jsonify(error="A JSON object is required"), 400
+
+    kind = data.get("kind")
+    client_value = data.get("client")
+    raw_amount = data.get("amount")
+    raw_date = data.get("date")
+    raw_reference = data.get("id", "")
+
+    if not isinstance(kind, str) or not isinstance(client_value, str):
+        return jsonify(error="Valid document type and client are required"), 400
+
+    kind = kind.strip()
+    client = client_value.strip()
+
+    if kind not in ("Quote", "Invoice") or not client or len(client) > 200:
+        return jsonify(error="Valid document type and client are required"), 400
+
+    if isinstance(raw_amount, bool) or raw_amount is None:
         return jsonify(error="A valid amount is required"), 400
 
-    if (
-        kind not in ("Quote", "Invoice")
-        or not client
-        or not math.isfinite(amount)
-        or amount <= 0
-    ):
-        return jsonify(
-            error="Valid type, client and positive amount are required"
-        ), 400
+    try:
+        amount = float(raw_amount)
+    except (TypeError, ValueError, OverflowError):
+        return jsonify(error="A valid amount is required"), 400
 
-    reference = str(data.get("id", "")).strip()
+    if not math.isfinite(amount) or amount <= 0:
+        return jsonify(error="Amount must be a positive finite number"), 400
+
+    # The current frontend submits the client's company name.
+    # Require a matching client in the signed-in user's workspace.
+    matching_clients = Client.query.filter_by(
+        company=client,
+        workspace_id=g.current_user.workspace_id,
+    ).all()
+
+    if not matching_clients:
+        return jsonify(error="Select a client from your workspace"), 400
+
+    if len(matching_clients) > 1:
+        return jsonify(
+            error="More than one client has this company name; "
+                  "please make the company names unique"
+        ), 409
+
+    if raw_date in (None, ""):
+        document_date = date.today().isoformat()
+    elif not isinstance(raw_date, str):
+        return jsonify(error="Date must use YYYY-MM-DD format"), 400
+    else:
+        try:
+            document_date = date.fromisoformat(raw_date.strip()).isoformat()
+        except ValueError:
+            return jsonify(error="Date must use YYYY-MM-DD format"), 400
+
+        if document_date != raw_date.strip():
+            return jsonify(error="Date must use YYYY-MM-DD format"), 400
+
+    if not isinstance(raw_reference, str):
+        return jsonify(error="Document reference must be text"), 400
+
+    reference = raw_reference.strip()
     if not reference:
-        reference = (
-            f"{'Q' if kind == 'Quote' else 'INV'}-{secrets.token_hex(8)}"
-        )
+        reference = f"{'Q' if kind == 'Quote' else 'INV'}-{secrets.token_hex(8)}"
 
     if len(reference) > 80:
         return jsonify(error="Document reference is too long"), 400
@@ -424,7 +498,7 @@ def create_document():
         reference=reference,
         kind=kind,
         client=client,
-        date=str(data.get("date") or date.today().isoformat())[:10],
+        date=document_date,
         amount=amount,
         status="Draft",
         workspace_id=g.current_user.workspace_id,
@@ -435,11 +509,19 @@ def create_document():
         db.session.commit()
     except IntegrityError:
         db.session.rollback()
-        return jsonify(error="Could not use this document reference"), 409
+        return jsonify(error="Document conflicts with existing data"), 409
+    except Exception:
+        db.session.rollback()
+        app.logger.exception("Failed to create document")
+        return jsonify(error="Could not save document"), 500
 
     return jsonify(
-        id=row.reference, kind=row.kind, client=row.client,
-        date=row.date, amount=row.amount, status=row.status
+        id=row.reference,
+        kind=row.kind,
+        client=row.client,
+        date=row.date,
+        amount=row.amount,
+        status=row.status,
     ), 201
 
 
