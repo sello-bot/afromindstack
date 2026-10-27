@@ -536,17 +536,28 @@ def update_document(reference):
     if row is None:
         return jsonify(error="Document not found"), 404
 
-    status = str(
-        (request.get_json(silent=True) or {}).get("status", "")
-    ).strip()
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify(error="A JSON object is required"), 400
 
+    status = data.get("status")
+    if not isinstance(status, str):
+        return jsonify(error="Invalid document status"), 400
+
+    status = status.strip()
     if status not in {
         "Draft", "Sent", "Paid", "Overdue", "Accepted", "Declined"
     }:
         return jsonify(error="Invalid document status"), 400
 
     row.status = status
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        app.logger.exception("Failed to update document status")
+        return jsonify(error="Could not update document"), 500
+
     return jsonify(id=row.reference, status=row.status)
 
 
@@ -566,17 +577,32 @@ def list_products():
 @app.post("/api/products")
 @login_required
 def create_product():
-    data = request.get_json(silent=True) or {}
-    name = str(data.get("name", "")).strip()
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify(error="A JSON object is required"), 400
 
-    try:
-        price = float(data.get("price", -1))
-    except (TypeError, ValueError):
+    name = data.get("name")
+    if not isinstance(name, str):
+        return jsonify(error="A valid product name is required"), 400
+
+    name = name.strip()
+    if not name or len(name) > 200:
+        return jsonify(
+            error="Product name must be between 1 and 200 characters"
+        ), 400
+
+    raw_price = data.get("price")
+    if isinstance(raw_price, bool) or raw_price is None:
         return jsonify(error="A valid price is required"), 400
 
-    if not name or not math.isfinite(price) or price < 0:
+    try:
+        price = float(raw_price)
+    except (TypeError, ValueError, OverflowError):
+        return jsonify(error="A valid price is required"), 400
+
+    if not math.isfinite(price) or price < 0:
         return jsonify(
-            error="Name and non-negative price are required"
+            error="Price must be a finite, non-negative number"
         ), 400
 
     row = Product(
@@ -585,7 +611,16 @@ def create_product():
         workspace_id=g.current_user.workspace_id,
     )
     db.session.add(row)
-    db.session.commit()
+
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify(error="Product conflicts with existing data"), 409
+    except Exception:
+        db.session.rollback()
+        app.logger.exception("Failed to create product")
+        return jsonify(error="Could not save product"), 500
 
     return jsonify(id=row.id, name=row.name, price=row.price), 201
 
@@ -602,7 +637,13 @@ def delete_product(product_id):
         return jsonify(error="Product not found"), 404
 
     db.session.delete(row)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        app.logger.exception("Failed to delete product")
+        return jsonify(error="Could not delete product"), 500
+
     return jsonify(deleted=True)
 
 
