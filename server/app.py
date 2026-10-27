@@ -224,6 +224,7 @@ def register():
     session.clear()
     session["user_id"] = user.id
     session.permanent = False
+    app.session_interface.regenerate(session)
 
     return jsonify(user=user_payload(user)), 201
 
@@ -247,6 +248,7 @@ def login():
     session.clear()
     session["user_id"] = user.id
     session.permanent = False
+    app.session_interface.regenerate(session)
 
     return jsonify(user=user_payload(user))
 

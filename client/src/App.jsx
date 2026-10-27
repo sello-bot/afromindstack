@@ -75,23 +75,118 @@ async function logout(){
  }
 }
 
-useEffect(()=>{let cancelled=false;async function loadClients(){try{const r=await fetch('/api/clients');const data=await r.json();if(!r.ok)throw new Error(data.error||'Could not load clients');if(!Array.isArray(data))throw new Error('Unexpected response from the clients API');if(!cancelled){setClients(data);setClientError('')}}catch(err){if(!cancelled)setClientError('Could not load clients from the server. Check that the Flask API is running, then refresh.')}finally{if(!cancelled)setClientsLoading(false)}}loadClients();return()=>{cancelled=true}},[]);const[recordsLoading,setRecordsLoading]=useState(true),[recordsError,setRecordsError]=useState('');
-useEffect(()=>{
- let cancelled=false;
- async function loadRecords(){
-  try {
-   const [remoteDocs,remoteProducts]=await Promise.all([
-    fetch('/api/documents',{credentials:'include'}).then(async r=>{const d=await r.json();if(!r.ok)throw new Error(d.error||'Documents request failed');return d;}),
-    fetch('/api/products',{credentials:'include'}).then(async r=>{const d=await r.json();if(!r.ok)throw new Error(d.error||'Products request failed');return d;})
-   ]);
-   if(!cancelled){setDocs(remoteDocs);setProducts(remoteProducts);setRecordsError('');}
-  }catch(err){
-   if(!cancelled)setRecordsError('Could not load workspace records. '+(err.message||'Check the API connection.'));
-  }finally{if(!cancelled)setRecordsLoading(false);}
- }
- loadRecords();
- return()=>{cancelled=true};
-},[]);
+useEffect(() => {
+  let cancelled = false;
+
+  if (authLoading) return () => { cancelled = true; };
+
+  if (!user) {
+    setClients([]);
+    setClientError('');
+    setClientsLoading(false);
+    return () => { cancelled = true; };
+  }
+
+  setClientsLoading(true);
+
+  async function loadClients() {
+    try {
+      const r = await fetch('/api/clients', {
+        credentials: 'include'
+      });
+      const data = await r.json();
+
+      if (!r.ok) {
+        throw new Error(data.error || 'Could not load clients');
+      }
+      if (!Array.isArray(data)) {
+        throw new Error('Unexpected response from the clients API');
+      }
+
+      if (!cancelled) {
+        setClients(data);
+        setClientError('');
+      }
+    } catch (err) {
+      if (!cancelled) {
+        setClientError(
+          err.message || 'Could not load clients from the server.'
+        );
+      }
+    } finally {
+      if (!cancelled) setClientsLoading(false);
+    }
+  }
+
+  loadClients();
+  return () => { cancelled = true; };
+}, [user, authLoading]);
+
+const[recordsLoading,setRecordsLoading]=useState(true),[recordsError,setRecordsError]=useState('');
+useEffect(() => {
+  let cancelled = false;
+
+  if (authLoading) return () => { cancelled = true; };
+
+  if (!user) {
+    setDocs([]);
+    setProducts([]);
+    setRecordsError('');
+    setRecordsLoading(false);
+    return () => { cancelled = true; };
+  }
+
+  setRecordsLoading(true);
+
+  async function loadRecords() {
+    try {
+      const [remoteDocs, remoteProducts] = await Promise.all([
+        fetch('/api/documents', {
+          credentials: 'include'
+        }).then(async r => {
+          const data = await r.json();
+          if (!r.ok) {
+            throw new Error(data.error || 'Documents request failed');
+          }
+          if (!Array.isArray(data)) {
+            throw new Error('Unexpected documents response');
+          }
+          return data;
+        }),
+        fetch('/api/products', {
+          credentials: 'include'
+        }).then(async r => {
+          const data = await r.json();
+          if (!r.ok) {
+            throw new Error(data.error || 'Products request failed');
+          }
+          if (!Array.isArray(data)) {
+            throw new Error('Unexpected products response');
+          }
+          return data;
+        })
+      ]);
+
+      if (!cancelled) {
+        setDocs(remoteDocs);
+        setProducts(remoteProducts);
+        setRecordsError('');
+      }
+    } catch (err) {
+      if (!cancelled) {
+        setRecordsError(
+          'Could not load workspace records. ' +
+          (err.message || 'Check the API connection.')
+        );
+      }
+    } finally {
+      if (!cancelled) setRecordsLoading(false);
+    }
+  }
+
+  loadRecords();
+  return () => { cancelled = true; };
+}, [user, authLoading]);
 useEffect(()=>{if(!toast)return;const t=setTimeout(()=>setToast(''),2400);return()=>clearTimeout(t)},[toast]);
 const invoices=docs.filter(d=>d.kind==='Invoice'),quotes=docs.filter(d=>d.kind==='Quote'),paid=invoices.filter(d=>d.status==='Paid').reduce((s,d)=>s+d.amount,0),outstanding=invoices.filter(d=>d.status!=='Paid').reduce((s,d)=>s+d.amount,0);
 const shownDocs=docs.filter(d=>(active==='Quotes'?d.kind==='Quote':active==='Invoices'||active==='Payments'?d.kind==='Invoice':true)&&`${d.id} ${d.client} ${d.status}`.toLowerCase().includes(q.toLowerCase()));

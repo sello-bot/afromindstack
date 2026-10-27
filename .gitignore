@@ -22,3 +22,4 @@ backups/
 *.before-auth-foundation
 *.backup
 __pycache__/
+/flask_session/
