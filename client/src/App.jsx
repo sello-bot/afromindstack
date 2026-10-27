@@ -5,6 +5,66 @@ const initialDocs=[{id:'Q-2026-001',kind:'Quote',client:'Mokoena Electrical',dat
 const money=n=>new Intl.NumberFormat('en-ZA',{style:'currency',currency:'ZAR',maximumFractionDigits:0}).format(n);
 const read=(k,f)=>{try{return JSON.parse(localStorage.getItem(k))||f}catch{return f}};
 const nav=[['Dashboard',LayoutDashboard],['Quotes',FileText],['Invoices',ReceiptText],['Clients',Users],['Products & services',Package],['Payments',Wallet],['Reports',ChartNoAxesCombined],['Settings',Settings]];
+
+let csrfToken = null;
+
+async function getCsrfToken(force = false) {
+  if (force) csrfToken = null;
+  if (csrfToken) return csrfToken;
+
+  const response = await fetch('/api/auth/csrf', {
+    credentials: 'include'
+  });
+  const data = await response.json();
+
+  if (!response.ok || !data.csrf_token) {
+    throw new Error(data.error || 'Could not obtain security token');
+  }
+
+  csrfToken = data.csrf_token;
+  return csrfToken;
+}
+
+async function apiFetch(url, options = {}) {
+  const method = (options.method || 'GET').toUpperCase();
+  const headers = new Headers(options.headers || {});
+  const unsafe = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
+
+  if (unsafe) {
+    headers.set('X-CSRF-Token', await getCsrfToken());
+  }
+
+  const response = await fetch(url, {
+    ...options,
+    headers,
+    credentials: 'include'
+  });
+
+  if (
+    response.ok &&
+    typeof url === 'string' &&
+    (url === '/api/auth/login' || url === '/api/auth/register')
+  ) {
+    // Login/registration regenerate the session, so refresh its CSRF token.
+    csrfToken = null;
+    try {
+      await getCsrfToken(true);
+    } catch {
+      csrfToken = null;
+    }
+  }
+
+  if (
+    response.ok &&
+    typeof url === 'string' &&
+    url === '/api/auth/logout'
+  ) {
+    csrfToken = null;
+  }
+
+  return response;
+}
+
 export default function App(){
 const [user,setUser]=useState(null);
 const [authLoading,setAuthLoading]=useState(true);
@@ -20,7 +80,7 @@ useEffect(()=>{
  let cancelled=false;
  async function checkSession(){
   try{
-   const r=await fetch('/api/auth/me',{credentials:'include'});
+   const r=await apiFetch('/api/auth/me',{credentials:'include'});
    const d=await r.json();
    if(!r.ok)throw new Error(d.error||'Not signed in');
    if(!cancelled)setUser(d.user);
@@ -45,7 +105,7 @@ async function submitAuth(e){
  }
  try{
   const endpoint=authMode==='register'?'register':'login';
-  const r=await fetch('/api/auth/'+endpoint,{
+  const r=await apiFetch('/api/auth/'+endpoint,{
    method:'POST',
    headers:{'Content-Type':'application/json'},
    credentials:'include',
@@ -63,7 +123,7 @@ async function submitAuth(e){
 }
 async function logout(){
  try{
-  await fetch('/api/auth/logout',{method:'POST',credentials:'include'});
+  await apiFetch('/api/auth/logout',{method:'POST',credentials:'include'});
  }finally{
   setUser(null);
   setDocs([]);
@@ -91,7 +151,7 @@ useEffect(() => {
 
   async function loadClients() {
     try {
-      const r = await fetch('/api/clients', {
+      const r = await apiFetch('/api/clients', {
         credentials: 'include'
       });
       const data = await r.json();
@@ -141,7 +201,7 @@ useEffect(() => {
   async function loadRecords() {
     try {
       const [remoteDocs, remoteProducts] = await Promise.all([
-        fetch('/api/documents', {
+        apiFetch('/api/documents', {
           credentials: 'include'
         }).then(async r => {
           const data = await r.json();
@@ -153,7 +213,7 @@ useEffect(() => {
           }
           return data;
         }),
-        fetch('/api/products', {
+        apiFetch('/api/products', {
           credentials: 'include'
         }).then(async r => {
           const data = await r.json();
@@ -190,21 +250,21 @@ useEffect(() => {
 useEffect(()=>{if(!toast)return;const t=setTimeout(()=>setToast(''),2400);return()=>clearTimeout(t)},[toast]);
 const invoices=docs.filter(d=>d.kind==='Invoice'),quotes=docs.filter(d=>d.kind==='Quote'),paid=invoices.filter(d=>d.status==='Paid').reduce((s,d)=>s+d.amount,0),outstanding=invoices.filter(d=>d.status!=='Paid').reduce((s,d)=>s+d.amount,0);
 const shownDocs=docs.filter(d=>(active==='Quotes'?d.kind==='Quote':active==='Invoices'||active==='Payments'?d.kind==='Invoice':true)&&`${d.id} ${d.client} ${d.status}`.toLowerCase().includes(q.toLowerCase()));
-async function saveClient(e){e.preventDefault();const f=new FormData(e.currentTarget);const payload={name:f.get('name'),company:f.get('company'),email:f.get('email'),phone:f.get('phone')};try{const r=await fetch('/api/clients',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const data=await r.json();if(!r.ok)throw new Error(data.error||'Could not save client');setClients(cs=>[data,...cs]);setClientError('');setModal('');setToast('Client saved to database')}catch(err){setClientError(err.message==='Failed to fetch'?'Could not reach the server. Check that the Flask API is running.':err.message||'Could not save client')}}
-async function deleteClient(id){try{const r=await fetch('/api/clients/'+id,{method:'DELETE'});const data=await r.json();if(!r.ok)throw new Error(data.error||'Could not delete client');setClients(cs=>cs.filter(c=>c.id!==id));setClientError('');setToast('Client deleted from database')}catch(err){setClientError(err.message==='Failed to fetch'?'Could not reach the server. Check that the Flask API is running.':err.message||'Could not delete client')}}
+async function saveClient(e){e.preventDefault();const f=new FormData(e.currentTarget);const payload={name:f.get('name'),company:f.get('company'),email:f.get('email'),phone:f.get('phone')};try{const r=await apiFetch('/api/clients',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const data=await r.json();if(!r.ok)throw new Error(data.error||'Could not save client');setClients(cs=>[data,...cs]);setClientError('');setModal('');setToast('Client saved to database')}catch(err){setClientError(err.message==='Failed to fetch'?'Could not reach the server. Check that the Flask API is running.':err.message||'Could not save client')}}
+async function deleteClient(id){try{const r=await apiFetch('/api/clients/'+id,{method:'DELETE'});const data=await r.json();if(!r.ok)throw new Error(data.error||'Could not delete client');setClients(cs=>cs.filter(c=>c.id!==id));setClientError('');setToast('Client deleted from database')}catch(err){setClientError(err.message==='Failed to fetch'?'Could not reach the server. Check that the Flask API is running.':err.message||'Could not delete client')}}
 async function saveDoc(e){
  e.preventDefault();
  const f=new FormData(e.currentTarget),kind=f.get('kind');
  const payload={id:(kind==='Quote'?'Q':'INV')+'-'+Date.now().toString().slice(-7),kind,client:f.get('client'),date:new Date().toISOString().slice(0,10),amount:Number(f.get('amount'))};
  try{
-  const r=await fetch('/api/documents',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  const r=await apiFetch('/api/documents',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
   const data=await r.json();if(!r.ok)throw new Error(data.error||'Could not save document');
   setDocs(ds=>[data,...ds]);setModal('');setToast(kind+' saved to database');setRecordsError('');
  }catch(err){setRecordsError('Could not save document: '+(err.message||'Check the API connection.'))}
 }
 async function updateDocument(id,status){
  try{
-  const r=await fetch('/api/documents/'+encodeURIComponent(id),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});
+  const r=await apiFetch('/api/documents/'+encodeURIComponent(id),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});
   const data=await r.json();if(!r.ok)throw new Error(data.error||'Could not update status');
   setDocs(ds=>ds.map(d=>d.id===id?{...d,status:data.status}:d));setToast('Status saved to database');setRecordsError('');
  }catch(err){setRecordsError('Could not update document: '+(err.message||'Check the API connection.'))}
@@ -212,14 +272,14 @@ async function updateDocument(id,status){
 async function saveProduct(e){
  e.preventDefault();const form=e.currentTarget;const f=new FormData(form);
  try{
-  const r=await fetch('/api/products',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:f.get('name'),price:Number(f.get('price'))})});
+  const r=await apiFetch('/api/products',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:f.get('name'),price:Number(f.get('price'))})});
   const data=await r.json();if(!r.ok)throw new Error(data.error||'Could not save product');
   setProducts(ps=>[data,...ps]);form.reset();setToast('Catalogue item saved to database');setRecordsError('');
  }catch(err){setRecordsError('Could not save product: '+(err.message||'Check the API connection.'))}
 }
 async function deleteProduct(id){
  try{
-  const r=await fetch('/api/products/'+id,{method:'DELETE'});const data=await r.json();
+  const r=await apiFetch('/api/products/'+id,{method:'DELETE'});const data=await r.json();
   if(!r.ok)throw new Error(data.error||'Could not delete product');
   setProducts(ps=>ps.filter(p=>p.id!==id));setToast('Catalogue item deleted from database');setRecordsError('');
  }catch(err){setRecordsError('Could not delete product: '+(err.message||'Check the API connection.'))}

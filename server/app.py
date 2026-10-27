@@ -78,6 +78,33 @@ CORS(
     supports_credentials=True,
 )
 
+
+# CSRF protection for cookie-authenticated API requests.
+@app.get("/api/auth/csrf")
+def csrf_token():
+    token = session.get("_csrf_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session["_csrf_token"] = token
+    return jsonify(csrf_token=token)
+
+
+@app.before_request
+def protect_csrf_requests():
+    if (
+        request.path.startswith("/api/")
+        and request.method in {"POST", "PUT", "PATCH", "DELETE"}
+    ):
+        expected = session.get("_csrf_token")
+        supplied = request.headers.get("X-CSRF-Token", "")
+
+        if (
+            not expected
+            or not supplied
+            or not secrets.compare_digest(supplied, expected)
+        ):
+            return jsonify(error="CSRF validation failed"), 403
+
 from auth_models import register_auth_models
 
 BusinessAccount, User, Subscription, Usage = register_auth_models(db)
