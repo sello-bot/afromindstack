@@ -80,17 +80,17 @@ def upgrade():
     ).scalar()
 
     if legacy_id is None:
-        result = bind.execute(
+        legacy_id = bind.execute(
             sa.text(
                 "INSERT INTO business_account (name, created_at) "
-                "VALUES (:name, :created_at)"
+                "VALUES (:name, :created_at) "
+                "RETURNING id"
             ),
             {
                 "name": legacy_name,
                 "created_at": "2026-10-25 00:00:00",
             },
-        )
-        legacy_id = result.lastrowid
+        ).scalar_one()
 
     for table in ("client", "document", "product"):
         bind.execute(

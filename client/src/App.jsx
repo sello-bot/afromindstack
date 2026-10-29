@@ -1,5 +1,5 @@
 import {useEffect,useState} from 'react';
-import {Layers3,LayoutDashboard,FileText,ReceiptText,Users,Package,Wallet,ChartNoAxesCombined,Settings,Sun,Moon,Plus,Search,Download,Trash2,X,Menu,ArrowUpRight,Check,Clock3,CircleDollarSign} from 'lucide-react';
+import {Layers3,LayoutDashboard,FileText,ReceiptText,Users,Package,Wallet,ChartNoAxesCombined,Settings,Sun,Moon,Plus,Search,Download,Trash2,X,Menu,ArrowUpRight,Check,Clock3,CircleDollarSign,Sparkles,Send,Bot} from 'lucide-react';
 const initialClients=[{id:1,name:'Thabo Mokoena',company:'Mokoena Electrical',email:'thabo@example.co.za',phone:'071 234 5678'},{id:2,name:'Naledi Projects',company:'Naledi Projects (Pty) Ltd',email:'accounts@example.co.za',phone:'082 555 0142'},{id:3,name:'Lerato Design Studio',company:'Lerato Design Studio',email:'hello@example.co.za',phone:'079 111 2233'}];
 const initialDocs=[{id:'Q-2026-001',kind:'Quote',client:'Mokoena Electrical',date:'2026-10-24',amount:12500,status:'Sent'},{id:'INV-2026-014',kind:'Invoice',client:'Naledi Projects (Pty) Ltd',date:'2026-10-22',amount:8750,status:'Paid'},{id:'INV-2026-013',kind:'Invoice',client:'Lerato Design Studio',date:'2026-10-20',amount:4200,status:'Overdue'},{id:'Q-2026-002',kind:'Quote',client:'Mokoena Electrical',date:'2026-10-18',amount:18600,status:'Draft'}];
 const money=n=>new Intl.NumberFormat('en-ZA',{style:'currency',currency:'ZAR',maximumFractionDigits:0}).format(n);
@@ -72,6 +72,13 @@ const [authMode,setAuthMode]=useState('login');
 const [authError,setAuthError]=useState('');
 const [authBusy,setAuthBusy]=useState(false);
 
+// LUNA conversations stay in this browser session only; they are not persisted.
+const [lunaMessages,setLunaMessages]=useState([]);
+const [lunaInput,setLunaInput]=useState('');
+const [lunaBusy,setLunaBusy]=useState(false);
+const [lunaError,setLunaError]=useState('');
+
+
 const[theme,setTheme]=useState(()=>localStorage.getItem('afs-theme')|| (matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'));
 const[active,setActive]=useState('Dashboard'),[clients,setClients]=useState([]),[docs,setDocs]=useState([]),[products,setProducts]=useState([]);
 const[q,setQ]=useState(''),[modal,setModal]=useState(''),[toast,setToast]=useState(''),[mobile,setMobile]=useState(false);const[clientsLoading,setClientsLoading]=useState(true),[clientError,setClientError]=useState('');
@@ -121,6 +128,64 @@ async function submitAuth(e){
   setAuthBusy(false);
  }
 }
+
+// LUNA_FRONTEND_V1
+async function sendLunaMessage(e) {
+  e?.preventDefault();
+
+  const message = lunaInput.trim();
+  if (!message || lunaBusy) return;
+
+  const previousMessages = lunaMessages.slice(-10);
+  setLunaMessages(current => [...current, { role: 'user', content: message }]);
+  setLunaInput('');
+  setLunaError('');
+  setLunaBusy(true);
+
+  try {
+    const response = await apiFetch('/api/luna/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message,
+        history: previousMessages
+      })
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(
+        data.error ||
+        (response.status === 503
+          ? 'LUNA AI is not configured yet.'
+          : 'LUNA could not answer right now. Please try again.')
+      );
+    }
+
+    if (typeof data.reply !== 'string' || !data.reply.trim()) {
+      throw new Error('LUNA returned an empty response. Please try again.');
+    }
+
+    setLunaMessages(current => [
+      ...current,
+      { role: 'assistant', content: data.reply.trim() }
+    ]);
+  } catch (error) {
+    setLunaError(
+      error.message || 'Could not connect to LUNA AI. Please try again.'
+    );
+  } finally {
+    setLunaBusy(false);
+  }
+}
+
+function clearLunaConversation() {
+  setLunaMessages([]);
+  setLunaInput('');
+  setLunaError('');
+}
+
 async function logout(){
  try{
   await apiFetch('/api/auth/logout',{method:'POST',credentials:'include'});
@@ -129,6 +194,8 @@ async function logout(){
   setDocs([]);
   setClients([]);
   setProducts([]);
+  clearLunaConversation();
+  setLunaBusy(false);
   setAuthMode('login');
   setAuthError('');
   setActive('Dashboard');
@@ -292,6 +359,10 @@ return <div className="shell">{recordsError&&<div className="notice" role="alert
 <div className="workspace"><div className="workspace-logo">A</div><div><b>Afromind Studio</b><small>Free workspace</small></div><span>⌄</span></div>
 <div className="nav-label">WORKSPACE</div>{nav.slice(0,5).map(([name,Icon])=><button key={name} className={'nav '+(active===name?'selected':'')} onClick={()=>{setActive(name);setMobile(false);setQ('')}}><Icon size={18}/>{name}{name==='Quotes'&&<small>{quotes.length}</small>}</button>)}
 <div className="nav-label">MANAGE</div>{nav.slice(5).map(([name,Icon])=><button key={name} className={'nav '+(active===name?'selected':'')} onClick={()=>{setActive(name);setMobile(false);setQ('')}}><Icon size={18}/>{name}</button>)}
+<div className="nav-label">INTELLIGENCE</div>
+<button className={'nav luna-nav '+(active==='LUNA AI'?'selected':'')} onClick={()=>{setActive('LUNA AI');setMobile(false);setQ('')}}>
+  <Sparkles size={18}/><span>LUNA AI</span><span className="luna-nav-tag">AI</span>
+</button>
 <div className="side-bottom"><div className="upgrade"><div className="upgrade-icon"><Layers3 size={17}/></div><b>Make work flow.</b><p>Keep your business organised from one place.</p><button onClick={()=>setToast('Plans will be added after the pilot')}>Explore plans ↗</button></div><div className="profile"><div className="avatar">SK</div><div><b>Workspace owner</b><small>Afromind Tech</small></div></div></div></aside>
 {mobile&&<button className="scrim" onClick={()=>setMobile(false)} aria-label="Close menu"/>}
 <main><header><div className="crumb"><button className="mobile-menu icon" onClick={()=>setMobile(true)}><Menu/></button>Workspace <span>/</span> <b>{active}</b></div><div className="head-actions"><label className="search"><Search size={16}/><input placeholder="Search records..." value={q} onChange={e=>setQ(e.target.value)}/></label><button className="theme icon" title="Toggle light/dark mode" onClick={()=>setTheme(t=>t==='dark'?'light':'dark')}>{theme==='dark'?<Sun/>:<Moon/>}</button><div className="avatar" title={user?.name || user?.email || 'Account'}>
@@ -319,6 +390,88 @@ return <div className="shell">{recordsError&&<div className="notice" role="alert
 {['Quotes','Invoices','Payments'].includes(active)&&<><div className="heading"><div><label>{active==='Quotes'?'ESTIMATES & PROPOSALS':'BILLING & COLLECTIONS'}</label><h1>{active}</h1><p>{active==='Quotes'?'Create and track quotes before work begins.':'Track invoice statuses and outstanding amounts.'}</p></div><button className="primary" onClick={()=>setModal('doc')}><Plus size={16}/> Create {active==='Quotes'?'quote':'invoice'}</button></div><div className="metrics three"><Metric icon={FileText} label="Records" value={shownDocs.length} hint="Matching records"/><Metric icon={Wallet} label="Outstanding" value={money(shownDocs.filter(d=>d.status!=='Paid').reduce((s,d)=>s+d.amount,0))} hint="Unpaid record value"/><Metric icon={Check} label="Paid" value={shownDocs.filter(d=>d.status==='Paid').length} hint="Marked paid"/></div><section className="panel table-panel"><div className="panel-head"><div><h2>All {active.toLowerCase()}</h2><p>Change a status using the dropdown.</p></div><button className="secondary" onClick={exportCsv}><Download size={15}/> CSV</button></div><Documents docs={shownDocs} update={updateDocument}/></section><p className="notice">Quotes and invoices are stored in the workspace database.</p></>}
 {active==='Reports'&&<><div className="heading"><div><label>BUSINESS INTELLIGENCE</label><h1>Reports</h1><p>A clear view of recorded cash flow and documents.</p></div><button className="secondary" onClick={exportCsv}><Download size={15}/> Export CSV</button></div><div className="metrics three"><Metric icon={CircleDollarSign} label="Collected revenue" value={money(paid)} hint="Paid invoice records"/><Metric icon={Wallet} label="Outstanding" value={money(outstanding)} hint="Unpaid invoice records"/><Metric icon={Users} label="Client base" value={clients.length} hint="Local demo records"/></div><section className="panel"><div className="panel-head"><div><h2>Document summary</h2><p>Totals from this browser's demo data.</p></div></div>{['Quote','Invoice'].map(kind=><div className="report-row" key={kind}><b>{kind==='Quote'?'Quotes':'Invoices'}</b><div className="progress"><span style={{width:(docs.length?docs.filter(d=>d.kind===kind).length/docs.length*100:0)+'%'}}/></div><b>{money(docs.filter(d=>d.kind===kind).reduce((s,d)=>s+d.amount,0))}</b></div>)}</section></>}
 {active==='Products & services'&&<><div className="heading"><div><label>CATALOGUE</label><h1>Products & services</h1><p>Keep the items you sell in one place.</p></div></div><form className="product-form" onSubmit={saveProduct}><input name="name" required placeholder="Product or service name"/><input name="price" type="number" min="0" step=".01" required placeholder="Price in ZAR"/><button className="primary"><Plus size={16}/> Add item</button></form><section className="panel">{products.map(p=><div className="product-row" key={p.id}><Package/><b>{p.name}</b><span>{money(p.price)}</span><button className="icon" onClick={()=>deleteProduct(p.id)}><Trash2 size={16}/></button></div>)}{!products.length&&<div className="empty">Your catalogue is empty. Add a product or service above.</div>}</section></>}
+{active==='LUNA AI'&&<section className="luna-page">
+  <div className="luna-heading">
+    <div className="luna-orb"><Sparkles size={27}/></div>
+    <div>
+      <label>AFROMIND INTELLIGENCE</label>
+      <h1>LUNA AI</h1>
+      <p>Your business assistant, grounded in your workspace records.</p>
+    </div>
+    <button type="button" className="secondary luna-clear" onClick={clearLunaConversation} disabled={!lunaMessages.length&&!lunaError}>
+      <Trash2 size={15}/> Clear chat
+    </button>
+  </div>
+
+  <div className="luna-status">
+    <span className="luna-status-dot"/>
+    <span>Workspace-aware assistant</span>
+    <span className="luna-status-divider">·</span>
+    <span>Only your workspace's business records</span>
+  </div>
+
+  <div className="luna-chat">
+    {lunaMessages.length===0&&<div className="luna-welcome">
+      <div className="luna-welcome-icon"><Bot size={25}/></div>
+      <h2>How can I help you today?</h2>
+      <p>Ask about your clients, invoices, quotes, products, or your next business move.</p>
+      <div className="luna-suggestions">
+       {[
+  'Which invoices are overdue?',
+  'Summarise my business records',
+  'Which quotes still need attention?',
+  'What should I focus on next?'
+].map(prompt => (
+  <button
+    type="button"
+    key={prompt}
+    onClick={() => setLunaInput(prompt)}
+  >
+    {prompt}
+    <ArrowUpRight size={14} />
+  </button>
+))}
+      </div>
+    </div>}
+
+    {lunaMessages.map((message,index)=><div className={'luna-message '+(message.role==='user'?'from-user':'from-luna')} key={index}>
+      <div className="luna-message-icon">{message.role==='user'?<span>{(user?.name||user?.email||'U').slice(0,1).toUpperCase()}</span>:<Sparkles size={16}/>}</div>
+      <div className="luna-message-body">
+        <div className="luna-message-name">{message.role==='user'?'You':'LUNA AI'}</div>
+        <p>{message.content}</p>
+      </div>
+    </div>)}
+
+    {lunaBusy&&<div className="luna-message from-luna">
+      <div className="luna-message-icon"><Sparkles size={16}/></div>
+      <div className="luna-message-body">
+        <div className="luna-message-name">LUNA AI</div>
+        <div className="luna-typing"><i/><i/><i/><span>Thinking through your request…</span></div>
+      </div>
+    </div>}
+
+    {lunaError&&<div className="luna-error" role="alert">
+      <div><b>LUNA couldn't complete that request.</b><p>{lunaError}</p></div>
+      <button type="button" className="secondary" onClick={()=>setLunaError('')}>Dismiss</button>
+    </div>}
+  </div>
+
+  <form className="luna-composer" onSubmit={sendLunaMessage}>
+    <input
+      aria-label="Message LUNA AI"
+      value={lunaInput}
+      onChange={event=>setLunaInput(event.target.value)}
+      placeholder="Ask LUNA about your business…"
+      maxLength={4000}
+      disabled={lunaBusy}
+    />
+    <button className="primary luna-send" type="submit" disabled={lunaBusy||!lunaInput.trim()} aria-label="Send message">
+      <Send size={17}/><span>{lunaBusy?'Thinking':'Send'}</span>
+    </button>
+    <small>AI can make mistakes. Review important business decisions before acting.</small>
+  </form>
+</section>}
+
 {active==='Settings'&&<><div className="heading"><div><label>PREFERENCES</label><h1>Settings</h1><p>Personalise your AfromindStack workspace.</p></div></div><section className="panel settings"><h2>Appearance</h2><p>Choose the look that feels right for you. Your preference is saved in this browser.</p><div className="theme-options"><button className={theme==='dark'?'chosen':''} onClick={()=>setTheme('dark')}><div className="preview dark-preview"><i/><i/><i/></div><span><Moon/> <b>Dark mode</b><small>Dark surfaces and green accents</small></span>{theme==='dark'&&<Check className="check"/>}</button><button className={theme==='light'?'chosen':''} onClick={()=>setTheme('light')}><div className="preview light-preview"><i/><i/><i/></div><span><Sun/> <b>Light mode</b><small>Bright surfaces and dark text</small></span>{theme==='light'&&<Check className="check"/>}</button></div><div className="settings-divider"/><h2>Data & privacy</h2><p>Clients, quotes, invoices, and products are stored in the workspace database. Account sign-in and private workspace access controls still need to be implemented before using sensitive customer data.</p></section></>}
 <footer>© 2026 AfromindStack <span><i/> All systems operational · MVP preview</span></footer>
 </div></main>
